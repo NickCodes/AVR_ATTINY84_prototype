@@ -1,0 +1,20 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 11.00
+# Atmel Studio Solution File, Format Version 11.00
+Project("{54F91283-7BC4-4236-8FF9-10F437C3AD48}") = "AVR_ATTINY84_foundation", "AVR_ATTINY84_foundation\AVR_ATTINY84_foundation.cproj", "{B66F1EC3-1855-4C0F-92E5-8FE633F57AAB}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|AVR = Debug|AVR
+		Release|AVR = Release|AVR
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{B66F1EC3-1855-4C0F-92E5-8FE633F57AAB}.Debug|AVR.ActiveCfg = Debug|AVR
+		{B66F1EC3-1855-4C0F-92E5-8FE633F57AAB}.Debug|AVR.Build.0 = Debug|AVR
+		{B66F1EC3-1855-4C0F-92E5-8FE633F57AAB}.Release|AVR.ActiveCfg = Release|AVR
+		{B66F1EC3-1855-4C0F-92E5-8FE633F57AAB}.Release|AVR.Build.0 = Release|AVR
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal
