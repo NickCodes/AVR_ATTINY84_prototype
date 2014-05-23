@@ -1,1 +1,7 @@
-Test
+# ATTINY84 library
+
+##Description
+This is a library of basic functions that will serve as the foundation for a wireless data link between 2 or more 
+microcontrollers. The ATTINY84 lacks a true hardware SPI interface, so this library implements 3 wire SPI through the
+ATTINY84 USI interface. The wireless device is a Nordic Semiconductor NRFL01+
+
