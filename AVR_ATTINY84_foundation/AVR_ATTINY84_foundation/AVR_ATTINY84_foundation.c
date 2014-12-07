@@ -2,35 +2,42 @@
 #include "interrupt.h"
 #define NOP() asm volatile ("nop" ::)
 
-#define USI_OUT_REG	PORTA			// USI port output register.
-#define USI_IN_REG	PINA			// USI port input register.
-#define USI_DIR_REG	DDRA			// USI port direction register.
-#define USI_CLOCK_PIN	PA4			// USI clock I/O pin.
-#define USI_DATAIN_PIN PA5		// USI data input pin.
-#define USI_DATAOUT_PIN	PA6		// USI data output pin.
+// Define ports
+#define USI_OUT_REG	PORTA			// USI output register
+#define USI_IN_REG	PINA			// USI input register
+#define USI_DIR_REG	DDRA			// USI direction register
+#define USI_CLOCK_PIN PA4			// USI clock I/O pin
+#define USI_DATAIN_PIN PA5			// USI data input pin
+#define USI_DATAOUT_PIN	PA6			// USI data output pin
+#define DIAGNOSTIC_LED PA1				// Diagnostic LED
 
+// Todo - better understand prescaler below
 // Bits per second = CPUSPEED / PRESCALER / (COMPAREVALUE+1) / 2... Maximum = CPUSPEED / 64.
 #define TC0_PRESCALER_VALUE 8	// 1, 8, 64, 256 or 1024
 #define TC0_COMPARE_VALUE 255	// 0 to 255. > 31 with prescaler CLK/1
 
-#if TC0_PRESCALER_VALUE == 1 				#define TC0_PS_SETTING (1<<CS00)
-#elif TC0_PRESCALER_VALUE == 8 			#define TC0_PS_SETTING (1<<CS01)
-#elif TC0_PRESCALER_VALUE == 64			#define TC0_PS_SETTING (1<<CS01)|(1<<CS00)
-#elif TC0_PRESCALER_VALUE == 256 		#define TC0_PS_SETTING (1<<CS02)
-#elif TC0_PRESCALER_VALUE == 1024 	#define TC0_PS_SETTING (1<<CS02)|(1<<CS00)
-#else																#error Invalid T/C0 prescaler setting
+#if TC0_PRESCALER_VALUE == 1 
+#define TC0_PS_SETTING (1<<CS00)
+#elif TC0_PRESCALER_VALUE == 8 
+#define TC0_PS_SETTING (1<<CS01)
+#elif TC0_PRESCALER_VALUE == 64	
+#define TC0_PS_SETTING (1<<CS01)|(1<<CS00)
+#elif TC0_PRESCALER_VALUE == 256
+ #define TC0_PS_SETTING (1<<CS02)
+#elif TC0_PRESCALER_VALUE == 1024 
+#define TC0_PS_SETTING (1<<CS02)|(1<<CS00)
+#else #error Invalid T/C0 prescaler setting
 #endif
 
 unsigned char storedUSIDR;
 
+// Driver status struct - master mode flag, transfer complete flag, write during put collision flag
 struct usidriverStatus_t {
 	unsigned char masterMode : 1;       // True if in master mode.
 	unsigned char transferComplete : 1; // True when transfer completed.
 	unsigned char writeCollision : 1;   // True if put attempted during transfer.
 };
 volatile struct usidriverStatus_t spiX_status;
-
-
 
 // Generate clock by toggling USCK or writing 1 to USITC bit in USICR
 ISR(TIM0_COMPA_vect){	USICR |= (1<<USITC);}
@@ -42,8 +49,6 @@ ISR(USI_OVF_vect){
 	spiX_status.transferComplete = 1;															// Set transfer complete flag
 	storedUSIDR = USIDR;																					// Store transferredd USIDR
 }
-
-
 
 // Setup USI SPI master
 void spiX_initmaster( char spi_mode ){
@@ -93,7 +98,7 @@ void spiX_initslave( char spi_mode ){
 // Put one BYTE in the USIDR, initiating transfer if master
 char spiX_put( unsigned char val ){
 	// Return if 4 bit USISR counter is not 0000 (0x0f = 00001111) - collision
-	if( (USISR & 0x0F) != 0 ) {	spiX_status.writeCollision = 1;	return; }
+	if( (USISR & 0x0F) != 0 ) {	spiX_status.writeCollision = 1;	return 0; }
 	spiX_status.transferComplete = 0;
 	spiX_status.writeCollision = 0;
 	// Put 8bit char on the USIDR register
@@ -115,14 +120,6 @@ void spiX_wait(){	do {} while( spiX_status.transferComplete == 0 ); }
 
 
 
-
-
-
-
-
-
-
-
 // Implementation ------------------------------------------------------------------------
 
 
@@ -137,15 +134,20 @@ unsigned char read_register(unsigned char adress);
 int main(void)
 {
 	spiX_initmaster(SPIMODE);
-	sei();										// Enable interrupts
-	DDRA |= (1<<PA7);					// Set PA7 as input - Pin 7 (PA6) is DI - Data Input for USI in 3 wire SPI mode
+	//spiX_initslave(SPIMODE);
+	
+	sei();							// Enable interrupts
+	DDRA |= (1<<PA7);				// Set PA7 as input - Pin 7 (PA6) is DI - Data Input for USI in 3 wire SPI mode
 	PORTA |= (1<<PA7);				// Enable pull up resistor on PA7
 
-	//unsigned char var = 0x1c;	// GPIO register memory address?
-	unsigned char byte_payload = 0b11111111;					// Send this to slave
+	//DDRA |= (0<<PA3);				// Set PA2 as output
+	//PORTA |= (0<<PA3);				// Enable pull up resistor on PA7
+
+
+	//unsigned char var = 0x1c;							// GPIO register memory address?
+	unsigned char byte_payload = 0b11111111;			// Send this to slave
 	unsigned char communication_flags = 0b00000000;
-	
-	read_register(byte_payload);	// Swap one BYTE with slave
+	read_register(byte_payload);						// Swap one BYTE with slave
 	long_delay(0x3000);
 	
 	// Status light needs to start red
@@ -153,34 +155,29 @@ int main(void)
 	while(1){
 		// This should return NON ZERO if bit 1 in storedUSDIR is set, ZERO if bit one is not set
 		if ( storedUSIDR & 0b00000010 ){
-			// If slave returned 0b00000010
-			// Turn off error light
-			// Turn on success light
+			// If slave returned 0b00000010, turn off error light, turn on success light
 			long_delay(0x3000);
 		}
 		
 		// Pressing the button sets flags and requests another transmission, comparing the storedUSDIR again
 		
-		
-		if( PINA & (1 << PA2) ){	// PA2 is high by default due to pullup resistor - button is not pressed
+		// PA2 is high by default due to pullup resistor - button is not pressed
+		if( PINA & (1 << PA2) )
+		{	
 			communication_flags &= 0b00000000; // Clear button press flag
-			} else { // Button is pressed
-			// if comm flags are cleared, set the button bit and request another USI SPI transmission
-			if (communication_flags & 0b00000000){
-				communication_flags |= 0b00000001; // Set last bit of comm flags to prevent another transmission
-				// Turn off status led
-				long_delay(0x3000);
-				// Turn on status led
-				read_register(byte_payload);	// Swap one BYTE with slave
-				// Turn off status led
-				long_delay(0x3000);
-				// Turn on status led
+		} 
+		else 
+		{
+			if (communication_flags & 0b00000000)
+			{
+				communication_flags |= 0b00000001;	// Set last bit of comm flags to prevent another transmission
+				long_delay(0x3000);					// Turn off status led
+				read_register(byte_payload);		// Swap one BYTE with slave			
+				long_delay(0x3000);					// Turn off status led
 			}
-		}
-		
-	}
-	
-}
+		} // end else
+	} // end while
+} // end main
 
 unsigned char read_register(unsigned char adress)	{
 	PORTA &= ~(1<<PA7);			// Disable pullup resistor for PA7
@@ -193,7 +190,7 @@ unsigned char read_register(unsigned char adress)	{
 	// Return 1 (0 if collision)
 	// Compare match cycles 8 bits into USIDR
 	// Compare match interrupt fires and USIDR is stored in temp
-	spiX_wait();						// Wait for spiX_status.transferComplete flag to be set
+	spiX_wait();				// Wait for spiX_status.transferComplete flag to be set
 	adress = spiX_get();		// returns storedUSIDR value
 	PORTA |= (1<<PA7);			// Enable pullup resistor for PA7
 
