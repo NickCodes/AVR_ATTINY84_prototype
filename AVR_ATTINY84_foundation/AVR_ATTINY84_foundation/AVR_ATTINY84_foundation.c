@@ -2,16 +2,17 @@
 #include "interrupt.h"
 #define NOP() asm volatile ("nop" ::)
 
-// Define ports
-#define USI_OUT_REG	PORTA			// USI output register
-#define USI_IN_REG	PINA			// USI input register
-#define USI_DIR_REG	DDRA			// USI direction register
-#define USI_CLOCK_PIN PA4			// USI clock I/O pin
-#define USI_DATAIN_PIN PA5			// USI data input pin
-#define USI_DATAOUT_PIN	PA6			// USI data output pin
-#define DIAGNOSTIC_LED PA1			// Diagnostic LED
-
 #pragma region Prescalar & Setup
+
+// Define ports
+#define USI_OUT_REG	PORTA	// USI output register
+#define USI_IN_REG	PINA	// USI input register
+#define USI_DIR_REG	DDRA	// USI direction register
+#define USI_CLOCK_PIN PA4	// USI clock I/O pin
+#define USI_DATAIN_PIN PA5	// USI data input pin
+#define USI_DATAOUT_PIN	PA6	// USI data output pin
+#define DIAGNOSTIC_LED PA1	// Diagnostic LED
+
 // Todo - better understand prescaler below
 // Bits per second = CPUSPEED / PRESCALER / (COMPAREVALUE+1) / 2... Maximum = CPUSPEED / 64.
 #define TC0_PRESCALER_VALUE 8	// 1, 8, 64, 256 or 1024
@@ -115,34 +116,10 @@ void spiX_wait(){	do {} while( spiX_status.transferComplete == 0 ); }
 // Swap shift register with USI/SPI slave
 unsigned char read_register(unsigned char adress)	{
 	PORTA &= ~(1<<PA7);			// Disable pullup resistor for PA7
-	spiX_put( adress++ );		// choose resgister
-	// Check for collision
-	// Clear flags
-	// Put (address++)++ in USIDR data register
-	// Clear and enable compare match flag
-	// Enable compare match interrupt routine (ISR)
-	// Return 1 (0 if collision)
-	// Compare match cycles 8 bits into USIDR
-	// Compare match interrupt fires and USIDR is stored in temp
+	spiX_put( adress++ );		// choose register
 	spiX_wait();				// Wait for spiX_status.transferComplete flag to be set
 	adress = spiX_get();		// returns storedUSIDR value
 	PORTA |= (1<<PA7);			// Enable pullup resistor for PA7
-	// Interrupt handler for USI counter overflow -----
-	// Check mastermode
-	// Disable compare match interript (to prevent more clocks since it has triggered the overflow interrupt)
-	// Clear USISR 4 bit counter (indicating transmission no longer in progress)
-	// Set spiX_status.transferComplete flag
-	// Buffer the USIDR register so next transfer will not overwrite
-
-	// Theory of USI / SPI operation -----
-	// Compare match is being used as a counter for 8 bit cycles, triggering the overflow interrupt to indicate that the
-	// entire 8 bit USIDR has been swapped through USI/SPI
-	
-	// TODO - why enable and disable pull up resistor?
-	// (1<<PA7) returns the bitmask for PA7 (all 0's and a 1 where PA7 occupies the byte)
-	// When you OR PORTA against the bit mask, you end up with the bit for PA7 turned on with nothing else affected
-	// Using PORTA &= (1<<PA7) disables the PA7 bit without affecting anything else
-	
 	return adress;
 }
 // Pause for ms milliseconds
@@ -161,42 +138,60 @@ int main(void)
 	spiX_initmaster(SPIMODE);
 	//spiX_initslave(SPIMODE);
 	
-	sei();							// Enable interrupts
-	DDRA |= (1<<PA7);				// Set PA7 as input - Pin 7 (PA6) is DI - Data Input for USI in 3 wire SPI mode
-	PORTA |= (1<<PA7);				// Enable pull up resistor on PA7
-	DDRA |= (1<<PA2);				// Set PA2 as input for a button to control transmission requests from the master
-	DDRA &= (1<<PA1);				// Set PA1 as output diagnostic LED
-
+	sei();												// Enable interrupts
+	PortSetup();										// Setup I/O
 	unsigned char byte_payload = 0b11111111;			// Send this to slave
-	unsigned char communication_flags = 0b00000000;		// Set flag to begin transmission
+	unsigned char communication_flags = 0x00;			// Set flag to begin transmission
 	read_register(byte_payload);						// Swap one BYTE with slave over USI/SPI
-	
+	uint16_t delay = 400;
+		
 	while(1){
 
-		// Expected slave buffer payload : 0b10101010
-		if (storedUSIDR & 0b10101010 )
-		{
-			// Success, blink PA1 until reset transmission button pressed or power down
-		}
-		else
-		{
-			// Failure, turn PA1 high solid on
-		}
-		
-		if( PINA & (1 << PA2) )
+		// Reset flag while button on PA1 is pressed
+		if( PINA & ~(1 << PA1) )
 		{	
-			 // Reset flag while button is pressed
-			communication_flags &= 0b00000000;
+			communication_flags = 0x00;
+			PORTB |= (1<<PB0);
+			PORTB &= ~(1<<PB1);
+			PORTB &= ~(1<<PB2);
 		} 
 		else 
 		{
+			PORTB &= ~(1<<PB0);
+			long_delay(400);
 			// When button is no longer pressed AND flag has been reset
-			if (communication_flags & 0b00000000)
+			if (communication_flags == 0x00)
 			{
-				communication_flags |= 0b00000001;	// Set last bit of comm flags to prevent another transmission
+				PORTB |= (1<<PB1);		
+				long_delay(400);
+				communication_flags = 0x01;			// Set last bit of comm flags to prevent another transmission
 				read_register(byte_payload);		// Swap one BYTE with slave			
+				PORTB |= (1<<PB2);		
 			}
 		} // end else
 	} // end while
 } // end main
 
+
+// If slave transferred expected payload, blink to indicate success
+void CheckForCorrectPayload()
+{
+	if (storedUSIDR & 0b10101010 )
+	{
+		while(1){
+			PORTB |= (1<<PB0);	
+			long_delay(400);
+			PORTB &= ~(1<<PB0);	
+			long_delay(400);
+		}
+	}
+}
+
+void PortSetup()
+{
+	DDRA |= (1<<PA1);	// PA1 as input switch
+	PORTA |= (1<<PA1);	// Enable pull up resistor on PA1, switch forces pin to ground/low
+	DDRB &= ~(1<<PB0);	// PB0 as output diagnostic LED
+	DDRB &= ~(1<<PB1);	// PB1 as output diagnostic LED
+	DDRB &= ~(1<<PB2);	// PB2 as output diagnostic LED	
+}
